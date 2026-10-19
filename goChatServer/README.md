@@ -39,6 +39,10 @@ go build -o goChatServer.exe .
 
 # 통합 테스트 실행
 go test -v ./...
+
+# 현재 세션에서 최대 소켓 연결 수를 65,535개로 해제 후 서버 실행
+ulimit -n 65535
+./goChatServer
 ```
 
 ---
@@ -48,21 +52,27 @@ go test -v ./...
 ### 1. 사용자 인증 및 닉네임 관리
 
 #### `POST /api/auth/session` — 닉네임 등록 또는 기존 닉네임 재사용(로그인)
+
 클라이언트가 최초 접속하거나 재접속할 때 호출합니다.
+
 - **동작 방식:**
+
   1. **신규 닉네임인 경우 (`201 Created`)**: 새 `user_id`와 세션 `token`을 발급하고 `password`(선택이지만 재사용을 위해 권장)를 해싱하여 저장합니다.
   2. **이미 존재하는 닉네임인 경우**:
      - 요청한 `password`가 기존에 등록된 비밀번호와 **일치하면 (`200 OK`)**: 본인으로 인증하여 **기존 `user_id`와 `nickname`을 그대로 유지**하고 새로운 세션 `token`을 발급해 반환합니다.
      - 비밀번호가 틀리거나 비밀번호 없이 생성된 닉네임이면 **`409 Conflict`** (`{"error": "nickname is already taken or password is incorrect"}`)를 반환합니다.
 
 - **Request:**
+
 ```json
 {
   "nickname": "홍길동",
   "password": "my-pin-1234"
 }
 ```
+
 - **Response (`201 Created` - 신규 생성 / `200 OK` - 기존 닉네임 재사용 성공):**
+
 ```json
 {
   "user_id": "550e8400-e29b-41d4-a716-446655440000",
@@ -71,6 +81,7 @@ go test -v ./...
   "created_at": "2026-10-19T09:20:00Z"
 }
 ```
+
 - **Error Responses:**
   - `400 Bad Request`: 닉네임 누락 또는 30자 초과
   - `409 Conflict`: 이미 다른 사용자가 사용 중인 닉네임이거나 비밀번호가 일치하지 않음
@@ -81,8 +92,10 @@ go test -v ./...
 ---
 
 #### `GET /api/auth/me` — 저장된 토큰으로 내 세션 확인
+
 - **Header:** `Authorization: Bearer <token>` (또는 `?token=<token>`)
 - **Response (`200 OK`):**
+
 ```json
 {
   "user_id": "550e8400-e29b-41d4-a716-446655440000",
@@ -93,13 +106,16 @@ go test -v ./...
 ```
 
 #### `PUT /api/auth/nickname` — 닉네임 변경
+
 - **Header:** `Authorization: Bearer <token>`
 - **Request:**
+
 ```json
 {
   "nickname": "새닉네임"
 }
 ```
+
 - **Response:**
   - `200 OK`: 변경된 세션 정보 반환
   - `409 Conflict`: 이미 사용 중인 닉네임 (`{"error": "nickname is already taken"}`)
@@ -109,11 +125,13 @@ go test -v ./...
 ### 2. 채팅방 목록 조회, 생성 및 관리
 
 #### `GET /api/rooms?visibility=all` — 채팅방 리스트 조회
+
 - `visibility` 쿼리 파라미터:
   - `all` (기본값): 공개방 + 비공개방 전체 조회
   - `public`: 공개방만 조회
   - `private`: 비공개방만 조회
 - **Response (`200 OK`):**
+
 ```json
 {
   "rooms": [
@@ -145,12 +163,14 @@ go test -v ./...
 ```
 
 #### `POST /api/rooms` — 채팅방 생성
+
 - **Header:** `Authorization: Bearer <token>`
 - **규칙:**
   - 이미 존재하는 채팅방 이름(대소문자 무관)으로는 생성할 수 없으며 `409 Conflict`가 반환됩니다.
   - `is_unlimited: true` 또는 `max_users: 0`이면 최대 인원(`max_users`)이 **100명**으로 설정됩니다.
   - 직접 인원을 지정할 경우 `1 ~ 100` 사이여야 합니다.
 - **Request (인원 지정 비공개방 예시):**
+
 ```json
 {
   "name": "비밀 프로젝트방",
@@ -160,7 +180,9 @@ go test -v ./...
   "is_unlimited": false
 }
 ```
+
 - **Request (무제한 공개방 예시 — 최대 100명으로 설정됨):**
+
 ```json
 {
   "name": "오픈 채팅방",
@@ -168,12 +190,15 @@ go test -v ./...
   "is_unlimited": true
 }
 ```
+
 - **Error Responses:**
   - `400 Bad Request`: 방 이름 누락, 비공개방 비밀번호 누락, 또는 `max_users`가 1~100 범위를 벗어남
   - `409 Conflict`: 동일한 이름의 채팅방이 이미 존재함 (`{"error": "room name is already taken"}`)
 
 #### `GET /api/rooms/{id}` — 특정 채팅방 정보 및 실시간 참여자 목록 조회
+
 - **Response (`200 OK`):**
+
 ```json
 {
   "room": {
@@ -195,13 +220,17 @@ go test -v ./...
 ```
 
 #### `POST /api/rooms/{id}/verify` — 입장 전 비밀번호/정원 사전 확인 (선택 사항)
+
 클라이언트 UI에서 비공개 방 클릭 시 WebSocket 연결 전에 비밀번호와 정원을 먼저 검증할 때 사용합니다.
+
 - **Request:**
+
 ```json
 {
   "password": "roomPassword123"
 }
 ```
+
 - **Response:**
   - `200 OK`: 입장 가능 (`{"allowed": true, "room": {...}}`)
   - `403 Forbidden`: 비밀번호 불일치 (`{"error": "invalid room password"}`)
@@ -209,6 +238,7 @@ go test -v ./...
   - `409 Conflict`: 방 정원 초과 (`current_users >= max_users`)
 
 #### `GET /api/rooms/{id}/messages?limit=50&before_id=0` — 이전 대화 내역 조회
+
 - **Header:** `Authorization: Bearer <token>` (비공개방인 경우 `X-Room-Password: <password>` 헤더 또는 `?password=<password>` 쿼리 추가)
 - `before_id`: 무한 스크롤(이전 메시지 더 불러오기) 시 가장 오래된 메시지 `id`를 전달하면 그 이전 메시지들을 반환합니다.
 
@@ -217,14 +247,17 @@ go test -v ./...
 ### 3. 실시간 WebSocket 접속 및 채팅
 
 #### 접속 URL
+
 ```
 ws://<서버주소>:8080/ws/rooms/{room_id}?token=<발급받은_토큰>&password=<비공개방_비밀번호>
 ```
+
 > - 공개방인 경우 `password` 파라미터는 생략합니다.
 > - 모바일/데스크탑 앱에서는 쿼리 파라미터 대신 `Authorization: Bearer <token>` 및 `X-Room-Password: <password>` 헤더로도 연결할 수 있습니다.
 > - **채팅방 자동 삭제 규칙:** 방에 접속한 사용자들이 나가거나 연결이 끊겨서 **방의 현재 인원이 0명이 되는 순간 해당 채팅방과 대화 내역은 서버에서 즉시 자동 삭제**됩니다.
 
 #### 클라이언트 -> 서버 메시지 전송 포맷
+
 ```json
 {
   "type": "chat",
@@ -235,6 +268,7 @@ ws://<서버주소>:8080/ws/rooms/{room_id}?token=<발급받은_토큰>&password
 #### 서버 -> 클라이언트 수신 이벤트 포맷
 
 1. **일반 채팅 및 입/퇴장 알림 (`type`: `"chat"`, `"join"`, `"leave"`)**
+
 ```json
 {
   "id": 12,
@@ -248,7 +282,8 @@ ws://<서버주소>:8080/ws/rooms/{room_id}?token=<발급받은_토큰>&password
 ```
 
 2. **실시간 방 인원 및 참여자 상태 (`type`: `"room_state"`)**
-누군가 입장하거나 퇴장할 때마다 방 안의 모든 클라이언트에게 브로드캐스트됩니다.
+   누군가 입장하거나 퇴장할 때마다 방 안의 모든 클라이언트에게 브로드캐스트됩니다.
+
 ```json
 {
   "type": "room_state",
